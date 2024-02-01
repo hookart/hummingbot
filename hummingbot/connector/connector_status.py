@@ -31,6 +31,8 @@ connector_status = {
     'hitbtc': 'bronze',
     'hyperliquid_perpetual_testnet': 'bronze',
     'hyperliquid_perpetual': 'bronze',
+    'hook_odyssey_perpetual': 'bronze',
+    'hook_odyssey_perpetual_testnet': 'bronze',
     'huobi': 'silver',
     'kraken': 'bronze',
     'kucoin': 'silver',

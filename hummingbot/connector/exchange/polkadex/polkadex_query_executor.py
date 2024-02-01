@@ -97,7 +97,7 @@ class GrapQLQueryExecutor(BaseQueryExecutor):
             cls._logger = logging.getLogger(HummingbotLogger.logger_name_for_class(cls))
         return cls._logger
 
-    def __init__(self, auth: AppSyncAuthentication, domain: Optional[str] = CONSTANTS.DEFAULT_DOMAIN):
+    def __init__(self, auth: AppSyncAuthentication, domain: Optional[str] = CONSTANTS.DOMAIN):
         super().__init__()
         self._auth = auth
         self._domain = domain
