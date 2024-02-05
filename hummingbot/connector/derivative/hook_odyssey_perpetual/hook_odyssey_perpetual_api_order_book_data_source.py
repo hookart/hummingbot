@@ -75,7 +75,7 @@ class HookOdysseyPerpetualAPIOrderBookDataSource(PerpetualAPIOrderBookDataSource
         message_queue.put_nowait(raw_message)
 
     async def get_funding_info(self, trading_pair: str) -> FundingInfo:
-        index_price = await self._data_source.get_last_traded_price(trading_pair)
+        index_price = await self._data_source.get_index_price(trading_pair)
         funding_info = await self._data_source.get_funding_info(trading_pair)
         funding_info.index_price = Decimal(index_price)
         return funding_info

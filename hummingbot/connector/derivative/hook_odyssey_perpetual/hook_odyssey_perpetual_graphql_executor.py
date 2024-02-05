@@ -27,27 +27,23 @@ class BaseGraphQLExecutor(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def subscribe_orderbook(
-        self, handler: Callable, instrument_hash: str
-    ) -> None:
+    async def subscribe_bbo(self, handler: Callable, symbol: str) -> None:
         raise NotImplementedError
 
     @abstractmethod
-    async def subscribe_subaccount_orders(
-        self, handler: Callable, subaccount: str
-    ) -> None:
+    async def subscribe_orderbook(self, handler: Callable, instrument_hash: str) -> None:
         raise NotImplementedError
 
     @abstractmethod
-    async def subscribe_subaccount_balances(
-        self, handler: Callable, address: str
-    ) -> None:
+    async def subscribe_subaccount_orders(self, handler: Callable, subaccount: str) -> None:
         raise NotImplementedError
 
     @abstractmethod
-    async def subscribe_subaccount_positions(
-        self, handler: Callable, address: str
-    ) -> None:
+    async def subscribe_subaccount_balances(self, handler: Callable, address: str) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def subscribe_subaccount_positions(self, handler: Callable, address: str) -> None:
         raise NotImplementedError
 
     @abstractmethod
@@ -72,9 +68,7 @@ class HookOdysseyPerpetualGrapQLExecutor(BaseGraphQLExecutor):
             cls._logger = logging.getLogger(HummingbotLogger.logger_name_for_class(cls))
         return cls._logger
 
-    def __init__(
-        self, hook_odyssey_api_key: str, domain: Optional[str] = CONSTANTS.DOMAIN
-    ):
+    def __init__(self, hook_odyssey_api_key: str, domain: Optional[str] = CONSTANTS.DOMAIN):
         super().__init__()
         self._hook_odyssey_api_key = hook_odyssey_api_key
         self._domain = domain
@@ -97,19 +91,13 @@ class HookOdysseyPerpetualGrapQLExecutor(BaseGraphQLExecutor):
 
         return result
 
-    async def _execute_subscription(
-        self, subscription_query: str, variables: dict[str, Any] | None = None
-    ):
+    async def _execute_subscription(self, subscription_query: str, variables: dict[str, Any] | None = None):
         headers = {"X-HOOK-API-KEY": self._hook_odyssey_api_key}
         url = CONSTANTS.WS_URLS[self._domain]
         transport = WebsocketsTransport(url=url, headers=headers)
-        async with Client(
-            transport=transport, execute_timeout=CONSTANTS.DEFAULT_TIMEOUT
-        ) as session:
+        async with Client(transport=transport, execute_timeout=CONSTANTS.DEFAULT_TIMEOUT) as session:
             subscription = gql(subscription_query)
-            async for result in session.subscribe(
-                subscription, variable_values=variables
-            ):
+            async for result in session.subscribe(subscription, variable_values=variables):
                 yield result
 
     async def perpetual_pairs(self) -> Dict[str, Any]:
@@ -154,9 +142,7 @@ class HookOdysseyPerpetualGrapQLExecutor(BaseGraphQLExecutor):
             }
         """
         variables = {"symbol": symbol}
-        async for event in self._execute_subscription(
-            subscription_query=query, variables=variables
-        ):
+        async for event in self._execute_subscription(subscription_query=query, variables=variables):
             await handler(event=event, symbol=symbol)
 
     async def subscribe_statistics(self, handler: Callable, symbol: str):
@@ -165,16 +151,30 @@ class HookOdysseyPerpetualGrapQLExecutor(BaseGraphQLExecutor):
                 statistics(symbol: $symbol) {
                     eventType
                     timestamp
-                    markPrice
                     fundingRateBips
                     nextFundingEpoch
                 }
             }
         """
         variables = {"symbol": symbol}
-        async for event in self._execute_subscription(
-            subscription_query=query, variables=variables
-        ):
+        async for event in self._execute_subscription(subscription_query=query, variables=variables):
+            await handler(event=event, symbol=symbol)
+
+    async def subscribe_bbo(self, handler: Callable, symbol: str) -> None:
+        query = """
+            subscription onBboEvent($symbol: String!, $instrumentType: InstrumentType!) {
+                bbo(symbol: $symbol, instrumentType: $instrumentType) {
+                    eventType
+                    timestamp
+                    instruments {
+                        id
+                        markPrice
+                    }
+                }
+            }
+        """
+        variables = {"symbol": symbol, "instrumentType": "PERPETUAL"}
+        async for event in self._execute_subscription(subscription_query=query, variables=variables):
             await handler(event=event, symbol=symbol)
 
     async def subscribe_orderbook(self, handler: Callable, instrument_hash: str):
@@ -197,9 +197,7 @@ class HookOdysseyPerpetualGrapQLExecutor(BaseGraphQLExecutor):
             }
         """
         variables = {"instrumentHash": instrument_hash}
-        async for event in self._execute_subscription(
-            subscription_query=query, variables=variables
-        ):
+        async for event in self._execute_subscription(subscription_query=query, variables=variables):
             await handler(event=event, instrument_hash=instrument_hash)
 
     async def subscribe_subaccount_orders(self, handler: Callable, subaccount: str):
@@ -221,9 +219,7 @@ class HookOdysseyPerpetualGrapQLExecutor(BaseGraphQLExecutor):
             }
         """
         variables = {"subaccount": subaccount}
-        async for event in self._execute_subscription(
-            subscription_query=query, variables=variables
-        ):
+        async for event in self._execute_subscription(subscription_query=query, variables=variables):
             await handler(event=event, subaccount=subaccount)
 
     async def subscribe_subaccount_balances(self, handler: Callable, address: str):
@@ -240,9 +236,7 @@ class HookOdysseyPerpetualGrapQLExecutor(BaseGraphQLExecutor):
             }
         """
         variables = {"address": address}
-        async for event in self._execute_subscription(
-            subscription_query=query, variables=variables
-        ):
+        async for event in self._execute_subscription(subscription_query=query, variables=variables):
             await handler(event=event, address=address)
 
     async def subscribe_subaccount_positions(self, handler: Callable, address: str):
@@ -262,9 +256,7 @@ class HookOdysseyPerpetualGrapQLExecutor(BaseGraphQLExecutor):
             }
         """
         variables = {"address": address}
-        async for event in self._execute_subscription(
-            subscription_query=query, variables=variables
-        ):
+        async for event in self._execute_subscription(subscription_query=query, variables=variables):
             await handler(event=event, address=address)
 
     async def place_order(

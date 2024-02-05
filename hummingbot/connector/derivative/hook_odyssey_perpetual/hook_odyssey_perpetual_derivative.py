@@ -406,7 +406,7 @@ class HookOdysseyPerpetualDerivative(PerpetualDerivativePyBase):
         raise NotImplementedError
 
     async def _get_last_traded_price(self, trading_pair: str) -> float:
-        ltp = await self._data_source.get_last_traded_price(trading_pair)
+        ltp = await self._data_source.get_index_price(trading_pair)
         return float(ltp)
 
     async def _update_balances(self):

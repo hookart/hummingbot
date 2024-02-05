@@ -59,37 +59,22 @@ class HookOdysseyPerpetualDataSource:
         self._graphql_executor = HookOdysseyPerpetualGrapQLExecutor(
             hook_odyssey_api_key=hook_odyssey_api_key, domain=self._domain
         )
-        self._signer = HookOdysseyPerpetualSigner(
-            private_key=hook_odyssey_perpetual_private_key, domain=self._domain
-        )
+        self._signer = HookOdysseyPerpetualSigner(private_key=hook_odyssey_perpetual_private_key, domain=self._domain)
         self._publisher = PubSub()
         self._events_listening_tasks = []
         self._assets_map: Dict[str, str] = {}
 
         # Data source state - used to provide subscription data at any time
-        self._perpetual_pairs: Dict[
-            str, Dict[str, Any]
-        ] = {}  # Mapping of trading pair to perpetual pair
+        self._perpetual_pairs: Dict[str, Dict[str, Any]] = {}  # Mapping of trading pair to perpetual pair
         self._symbols: Dict[str, str] = {}  # Mapping of symbol to trading pair
-        self._instrument_hashes: Dict[
-            str, str
-        ] = {}  # Mapping of instrument hash to trading pair
+        self._instrument_hashes: Dict[str, str] = {}  # Mapping of instrument hash to trading pair
         self._subaccounts: Dict[str, str] = {}  # Mapping of subaccount to trading pair
-        self._last_traded_price: Dict[
-            str, Decimal
-        ] = {}  # Mapping of trading pair to last traded price
-        self._subaccount_balances: Dict[
-            str, Decimal
-        ] = {}  # Mapping of subaccount to balance
-        self._subaccount_positions: Dict[
-            str, Position
-        ] = {}  # Mapping of subaccount to position
-        self._funding_info: Dict[
-            str, FundingInfo
-        ] = {}  # Mapping of trading pair to funding info
-        self._orderbook_snapshots: Dict[
-            str, OrderBookMessage
-        ] = {}  # Mapping of trading pair to orderbook snapshot
+        self._index_prices: Dict[str, Decimal] = {}  # Mapping of trading pair to index price
+        self._mark_prices: Dict[str, Decimal] = {}  # Mapping of trading pair to mark price
+        self._subaccount_balances: Dict[str, Decimal] = {}  # Mapping of subaccount to balance
+        self._subaccount_positions: Dict[str, Position] = {}  # Mapping of subaccount to position
+        self._funding_info: Dict[str, FundingInfo] = {}  # Mapping of trading pair to funding info
+        self._orderbook_snapshots: Dict[str, OrderBookMessage] = {}  # Mapping of trading pair to orderbook snapshot
         self._fees: Tuple[Decimal, Decimal] = (
             DEFAULT_FEES.maker_percent_fee_decimal,
             DEFAULT_FEES.taker_percent_fee_decimal,
@@ -97,6 +82,7 @@ class HookOdysseyPerpetualDataSource:
 
         self._initial_ticker_event = asyncio.Event()
         self._initial_statistics_event = asyncio.Event()
+        self._initial_bbo_event = asyncio.Event()
         self._initial_orderbook_event = asyncio.Event()
         self._initial_subaccount_orders_event = asyncio.Event()
         self._initial_subaccount_balances_event = asyncio.Event()
@@ -104,9 +90,7 @@ class HookOdysseyPerpetualDataSource:
 
     async def start(self, trading_pairs: List[str]):
         if len(self._events_listening_tasks) > 0:
-            raise AssertionError(
-                "Data source is already started and can't be started again"
-            )
+            raise AssertionError("Data source is already started and can't be started again")
         await self.get_supported_pairs()
 
         for trading_pair in trading_pairs:
@@ -129,6 +113,15 @@ class HookOdysseyPerpetualDataSource:
                 asyncio.create_task(
                     self._graphql_executor.subscribe_statistics(
                         self._process_statistics_update,
+                        symbol,
+                    )
+                )
+            )
+            # BBO - Top of book
+            self._events_listening_tasks.append(
+                asyncio.create_task(
+                    self._graphql_executor.subscribe_bbo(
+                        self._process_bbo_update,
                         symbol,
                     )
                 )
@@ -220,16 +213,19 @@ class HookOdysseyPerpetualDataSource:
             self._subaccounts[perpetual_pair["subaccount"]] = trading_pair
         return perpetual_pairs
 
-    def get_perpetual_pair_for_trading_pair(
-        self, trading_pair: str
-    ) -> Optional[Dict[str, Any]]:
+    def get_perpetual_pair_for_trading_pair(self, trading_pair: str) -> Optional[Dict[str, Any]]:
         """Retrieves perpetual pair details for a specific trading pair."""
         return self._perpetual_pairs.get(trading_pair, None)
 
-    async def get_last_traded_price(self, trading_pair: str) -> Decimal:
+    async def get_index_price(self, trading_pair: str) -> Decimal:
         # Wait for the trade subscription snapshot to come in
         await self._initial_ticker_event.wait()
-        return self._last_traded_price.get(trading_pair, 0.0)
+        return self._index_prices.get(trading_pair, 0.0)
+
+    async def get_mark_price(self, trading_pair: str) -> Decimal:
+        # Wait for the bbo subscription snapshot to come in
+        await self._initial_bbo_event.wait()
+        return self._mark_prices.get(trading_pair, 0.0)
 
     async def get_funding_info(self, trading_pair: str) -> FundingInfo:
         # Wait for the funding info subscription snapshot to come in
@@ -281,32 +277,45 @@ class HookOdysseyPerpetualDataSource:
         if symbol not in self._symbols:
             return
         trading_pair = self._symbols[symbol]
-        self._last_traded_price[trading_pair] = wei_to_eth(ticker_event["price"])
-        return self._last_traded_price[trading_pair]
+        self._index_prices[trading_pair] = wei_to_eth(ticker_event["price"])
+        return self._index_prices[trading_pair]
 
     async def _process_statistics_update(self, event: Dict[str, Any], symbol: str):
         statistics_event = event["statistics"]
 
-        if (
-            statistics_event["eventType"] == "SNAPSHOT"
-            and not self._initial_statistics_event.is_set()
-        ):
+        if statistics_event["eventType"] == "SNAPSHOT" and not self._initial_statistics_event.is_set():
             self._initial_statistics_event.set()
 
         if symbol not in self._symbols:
             return
         trading_pair = self._symbols[symbol]
+
+        # Get index price
+        index_price = await self.get_index_price(trading_pair)
+        mark_price = await self.get_mark_price(trading_pair)
         self._funding_info[trading_pair] = FundingInfo(
             trading_pair=trading_pair,
-            index_price=Decimal(0),
-            mark_price=Decimal(wei_to_eth(statistics_event["markPrice"])),
+            index_price=index_price,
+            mark_price=mark_price,
             next_funding_utc_timestamp=int(statistics_event["nextFundingEpoch"]),
             rate=Decimal(statistics_event["fundingRateBips"]) / Decimal(10000),
         )
 
-    async def _process_orderbook_update(
-        self, event: Dict[str, Any], instrument_hash: str
-    ):
+    async def _process_bbo_update(self, event: Dict[str, Any], symbol: str):
+        bbo_event = event["bbo"]
+
+        if bbo_event["eventType"] == "SNAPSHOT" and not self._initial_bbo_event.is_set():
+            self._initial_bbo_event.set()
+
+        if symbol not in self._symbols:
+            return
+
+        for instrument in bbo_event["instruments"]:
+            instrument_hash = instrument["id"]
+            trading_pair = self._instrument_hashes[instrument_hash]
+            self._mark_prices[trading_pair] = wei_to_eth(instrument["markPrice"])
+
+    async def _process_orderbook_update(self, event: Dict[str, Any], instrument_hash: str):
         if instrument_hash not in self._instrument_hashes:
             return
         trading_pair = self._instrument_hashes[instrument_hash]
@@ -352,9 +361,7 @@ class HookOdysseyPerpetualDataSource:
             message=order_book_message,
         )
 
-    async def _process_subaccount_orders_update(
-        self, event: Dict[str, Any], subaccount: str
-    ):
+    async def _process_subaccount_orders_update(self, event: Dict[str, Any], subaccount: str):
         orders_event = event["subaccountOrders"]
 
         if orders_event["eventType"] == "SNAPSHOT":
@@ -378,9 +385,7 @@ class HookOdysseyPerpetualDataSource:
                 client_order_id=order["orderHash"],
                 exchange_order_id=order["orderHash"],
             )
-            self._publisher.trigger_event(
-                event_tag=MarketEvent.OrderUpdate, message=order_update
-            )
+            self._publisher.trigger_event(event_tag=MarketEvent.OrderUpdate, message=order_update)
 
             # Update trade
             if order_state == "FILLED" or order_state == "PARTIALLY_FILLED":
@@ -388,15 +393,11 @@ class HookOdysseyPerpetualDataSource:
                 remaining_size = wei_to_eth(order["remainingSize"])
                 fill_amount = size - remaining_size
                 fill_price = wei_to_eth(order["limitPrice"])
-                trade_type = (
-                    TradeType.BUY if order["direction"] == "BUY" else TradeType.SELL
-                )
+                trade_type = TradeType.BUY if order["direction"] == "BUY" else TradeType.SELL
 
                 maker_fee, taker_fee = self.get_fees()
                 fee_rate = maker_fee if order["orderType"] == "MARKET" else taker_fee
-                fee = TradeFeeBase.new_perpetual_fee(
-                    trade_type=trade_type, percent=fee_rate
-                )
+                fee = TradeFeeBase.new_perpetual_fee(trade_type=trade_type, percent=fee_rate)
 
                 trade_update = TradeUpdate(
                     trade_id=f"{order['orderHash']}-{order['timestamp']}",
@@ -409,33 +410,23 @@ class HookOdysseyPerpetualDataSource:
                     fill_quote_amount=fill_price * fill_amount,
                     fee=fee,
                 )
-                self._publisher.trigger_event(
-                    event_tag=MarketEvent.TradeUpdate, message=trade_update
-                )
+                self._publisher.trigger_event(event_tag=MarketEvent.TradeUpdate, message=trade_update)
 
     async def _process_subaccount_balances(self, event: Dict[str, Any], address: str):
         balances_event = event["subaccountBalances"]
 
-        if (
-            balances_event["eventType"] == "SNAPSHOT"
-            and not self._initial_subaccount_balances_event.is_set()
-        ):
+        if balances_event["eventType"] == "SNAPSHOT" and not self._initial_subaccount_balances_event.is_set():
             self._initial_subaccount_balances_event.set()
 
         for balance in balances_event["balances"]:
             # Ignore primary account balances
             if balance["subaccountID"] != 0:
-                self._subaccount_balances[balance["subaccount"]] = wei_to_eth(
-                    balance["balance"]
-                )
+                self._subaccount_balances[balance["subaccount"]] = wei_to_eth(balance["balance"])
 
     async def _process_subaccount_positions(self, event: Dict[str, Any], address: str):
         positions_event = event["subaccountPositions"]
 
-        if (
-            positions_event["eventType"] == "SNAPSHOT"
-            and not self._initial_subaccount_positions_event.is_set()
-        ):
+        if positions_event["eventType"] == "SNAPSHOT" and not self._initial_subaccount_positions_event.is_set():
             self._initial_subaccount_positions_event.set()
 
         for position in positions_event["positions"]:
