@@ -121,11 +121,8 @@ class HookOdysseyPerpetualDerivative(PerpetualDerivativePyBase):
         return {
             "symbols_mapping_initialized": self.trading_pair_symbol_map_ready(),
             "order_books_initialized": self.order_book_tracker.ready,
-            "account_balance": not self.is_trading_required
-            or len(self._account_balances) > 0,
-            "trading_rule_initialized": len(self._trading_rules) > 0
-            if self.is_trading_required
-            else True,
+            "account_balance": not self.is_trading_required or len(self._account_balances) > 0,
+            "trading_rule_initialized": len(self._trading_rules) > 0 if self.is_trading_required else True,
         }
 
     async def start_network(self):
@@ -175,9 +172,7 @@ class HookOdysseyPerpetualDerivative(PerpetualDerivativePyBase):
         trading_rule: TradingRule = self._trading_rules[trading_pair]
         return trading_rule.sell_order_collateral_token
 
-    def _is_request_exception_related_to_time_synchronizer(
-        self, request_exception: Exception
-    ):
+    def _is_request_exception_related_to_time_synchronizer(self, request_exception: Exception):
         return False
 
     def _is_order_not_found_during_status_update_error(self, status_update_exception: Exception) -> bool:
@@ -439,9 +434,7 @@ class HookOdysseyPerpetualDerivative(PerpetualDerivativePyBase):
     async def _get_position_mode(self) -> Optional[PositionMode]:
         return PositionMode.ONEWAY
 
-    async def _trading_pair_position_mode_set(
-        self, mode: PositionMode, trading_pair: str
-    ) -> Tuple[bool, str]:
+    async def _trading_pair_position_mode_set(self, mode: PositionMode, trading_pair: str) -> Tuple[bool, str]:
         msg = ""
         success = True
         initial_mode = await self._get_position_mode()
@@ -450,28 +443,20 @@ class HookOdysseyPerpetualDerivative(PerpetualDerivativePyBase):
             success = False
         return success, msg
 
-    async def _set_trading_pair_leverage(
-        self, trading_pair: str, leverage: int
-    ) -> Tuple[bool, str]:
+    async def _set_trading_pair_leverage(self, trading_pair: str, leverage: int) -> Tuple[bool, str]:
         """
         Leverage is set on a per order basis
         """
         return True, ""
 
-    async def _fetch_last_fee_payment(
-        self, trading_pair: str
-    ) -> Tuple[int, Decimal, Decimal]:
+    async def _fetch_last_fee_payment(self, trading_pair: str) -> Tuple[int, Decimal, Decimal]:
         return 0, Decimal(0), Decimal(0)
 
-    async def _all_trade_updates_for_order(
-        self, order: InFlightOrder
-    ) -> List[TradeUpdate]:
+    async def _all_trade_updates_for_order(self, order: InFlightOrder) -> List[TradeUpdate]:
         # Hook Odyssey Perpetual does not support fetching all trade updates for an order
         pass
 
-    async def _format_trading_rules(
-        self, exchange_info_dict: List
-    ) -> List[TradingRule]:
+    async def _format_trading_rules(self, exchange_info_dict: List) -> List[TradingRule]:
         return []
 
     async def _request_order_status(self, tracked_order: InFlightOrder) -> OrderUpdate:
@@ -481,43 +466,31 @@ class HookOdysseyPerpetualDerivative(PerpetualDerivativePyBase):
         # User stream events are managed through HookOdysseyPerpetualDataSource
         pass
 
-    async def _update_time_synchronizer(
-        self, pass_on_non_cancelled_error: bool = False
-    ):
+    async def _update_time_synchronizer(self, pass_on_non_cancelled_error: bool = False):
         pass
 
     def _configure_event_forwarders(self):
         event_forwarder = EventForwarder(to_function=self._process_user_trade_update)
         self._forwarders.append(event_forwarder)
-        self._data_source.add_listener(
-            event_tag=MarketEvent.TradeUpdate, listener=event_forwarder
-        )
+        self._data_source.add_listener(event_tag=MarketEvent.TradeUpdate, listener=event_forwarder)
 
         event_forwarder = EventForwarder(to_function=self._process_user_order_update)
         self._forwarders.append(event_forwarder)
-        self._data_source.add_listener(
-            event_tag=MarketEvent.OrderUpdate, listener=event_forwarder
-        )
+        self._data_source.add_listener(event_tag=MarketEvent.OrderUpdate, listener=event_forwarder)
 
         event_forwarder = EventForwarder(to_function=self._process_balance_event)
         self._forwarders.append(event_forwarder)
-        self._data_source.add_listener(
-            event_tag=AccountEvent.BalanceEvent, listener=event_forwarder
-        )
+        self._data_source.add_listener(event_tag=AccountEvent.BalanceEvent, listener=event_forwarder)
 
     def _process_balance_event(self, event: BalanceUpdateEvent):
         self._account_balances[event.asset_name] = event.total_balance
         self._account_available_balances[event.asset_name] = event.available_balance
 
     def _process_user_order_update(self, order_update: OrderUpdate):
-        tracked_order = self._order_tracker.all_updatable_orders.get(
-            order_update.client_order_id
-        )
+        tracked_order = self._order_tracker.all_updatable_orders.get(order_update.client_order_id)
 
         if tracked_order is not None:
-            self.logger().debug(
-                f"Processing order update {order_update}\nUpdatable order {tracked_order.to_json()}"
-            )
+            self.logger().debug(f"Processing order update {order_update}\nUpdatable order {tracked_order.to_json()}")
             order_update_to_process = OrderUpdate(
                 trading_pair=tracked_order.trading_pair,
                 update_timestamp=order_update.update_timestamp,
@@ -525,32 +498,20 @@ class HookOdysseyPerpetualDerivative(PerpetualDerivativePyBase):
                 client_order_id=tracked_order.client_order_id,
                 exchange_order_id=order_update.exchange_order_id,
             )
-            self._order_tracker.process_order_update(
-                order_update=order_update_to_process
-            )
+            self._order_tracker.process_order_update(order_update=order_update_to_process)
 
     def _process_user_trade_update(self, trade_update: TradeUpdate):
-        tracked_order = (
-            self._order_tracker.all_fillable_orders_by_exchange_order_id.get(
-                trade_update.exchange_order_id
-            )
-        )
+        tracked_order = self._order_tracker.all_fillable_orders_by_exchange_order_id.get(trade_update.exchange_order_id)
 
         if tracked_order is not None:
-            self.logger().debug(
-                f"Processing trade update {trade_update}\nFillable order {tracked_order.to_json()}"
-            )
+            self.logger().debug(f"Processing trade update {trade_update}\nFillable order {tracked_order.to_json()}")
 
             # Fetch the current fee rates
             maker_fee, taker_fee = self._data_source.get_fees()
             fee_rate = maker_fee if tracked_order.is_maker else taker_fee
-            fee = TradeFeeBase.new_perpetual_fee(
-                trade_type=tracked_order.trade_type, percent=fee_rate
-            )
+            fee = TradeFeeBase.new_perpetual_fee(trade_type=tracked_order.trade_type, percent=fee_rate)
 
-            fill_amount = (
-                trade_update.fill_base_amount - tracked_order.executed_amount_base
-            )
+            fill_amount = trade_update.fill_base_amount - tracked_order.executed_amount_base
             trade_update: TradeUpdate = TradeUpdate(
                 trade_id=trade_update.trade_id,
                 client_order_id=tracked_order.client_order_id,

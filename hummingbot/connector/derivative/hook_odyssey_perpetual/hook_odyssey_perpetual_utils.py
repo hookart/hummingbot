@@ -19,9 +19,7 @@ _nonce_provider = NonceCreator.for_microseconds()
 
 
 class HookOdysseyPerpetualConfigMap(BaseConnectorConfigMap):
-    connector: str = Field(
-        default="hook_odyssey_perpetual", const=True, client_data=None
-    )
+    connector: str = Field(default="hook_odyssey_perpetual", const=True, client_data=None)
     hook_odyssey_perpetual_eth_address: str = Field(
         default=...,
         client_data=ClientFieldData(
@@ -57,17 +55,13 @@ class HookOdysseyPerpetualConfigMap(BaseConnectorConfigMap):
 KEYS = HookOdysseyPerpetualConfigMap.construct()
 
 OTHER_DOMAINS = ["hook_odyssey_perpetual_testnet"]
-OTHER_DOMAINS_PARAMETER = {
-    "hook_odyssey_perpetual_testnet": "hook_odyssey_perpetual_testnet"
-}
+OTHER_DOMAINS_PARAMETER = {"hook_odyssey_perpetual_testnet": "hook_odyssey_perpetual_testnet"}
 OTHER_DOMAINS_EXAMPLE_PAIR = {"hook_odyssey_perpetual_testnet": EXAMPLE_PAIR}
 OTHER_DOMAINS_DEFAULT_FEES = {"hook_odyssey_perpetual_testnet": DEFAULT_FEES}
 
 
 class HookOdysseyPerpetualTestnetConfigMap(BaseConnectorConfigMap):
-    connector: str = Field(
-        default="hook_odyssey_perpetual_testnet", const=True, client_data=None
-    )
+    connector: str = Field(default="hook_odyssey_perpetual_testnet", const=True, client_data=None)
     hook_odyssey_perpetual_testnet_public_key: SecretStr = Field(
         default=...,
         client_data=ClientFieldData(
@@ -91,9 +85,7 @@ class HookOdysseyPerpetualTestnetConfigMap(BaseConnectorConfigMap):
         title = "hook_odyssey_perpetual_testnet"
 
 
-OTHER_DOMAINS_KEYS = {
-    "hook_odyssey_perpetual_testnet": HookOdysseyPerpetualTestnetConfigMap.construct()
-}
+OTHER_DOMAINS_KEYS = {"hook_odyssey_perpetual_testnet": HookOdysseyPerpetualTestnetConfigMap.construct()}
 
 
 def eth_to_wei(eth_amount: Decimal) -> int:
