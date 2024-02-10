@@ -430,13 +430,24 @@ class HookOdysseyPerpetualDataSource:
             self._initial_subaccount_positions_event.set()
 
         for position in positions_event["positions"]:
-            size = wei_to_eth(position["size"])
-            side = PositionSide.LONG if size > 0 else PositionSide.SHORT
-            size = abs(size)
+            size = wei_to_eth(position["sizeHeld"])
+            if position["isLong"]:
+                side = PositionSide.LONG
+            else:
+                side = PositionSide.SHORT
+                size = Decimal(-1) * size
             instrument_hash = position["instrument"]["id"]
+            entry_price = wei_to_eth(position["averageCost"])
+
             if instrument_hash not in self._instrument_hashes:
                 continue
             trading_pair = self._instrument_hashes[instrument_hash]
+            mark_price = await self.get_mark_price(trading_pair)
+
+            if side == PositionSide.LONG:
+                unrealized_pnl = (mark_price - entry_price) * abs(size)
+            else:
+                unrealized_pnl = (entry_price - mark_price) * abs(size)
 
             if size == 0:
                 self._subaccount_positions.pop(instrument_hash)
@@ -444,9 +455,9 @@ class HookOdysseyPerpetualDataSource:
                 self._subaccount_positions[instrument_hash] = Position(
                     trading_pair=trading_pair,
                     position_side=side,
-                    unrealized_pnl=Decimal(0),
-                    entry_price=Decimal(0),
-                    amount=size,
+                    unrealized_pnl=unrealized_pnl.normalize(),
+                    entry_price=entry_price.normalize(),
+                    amount=size.normalize(),
                     leverage=Decimal(1),
                 )
 

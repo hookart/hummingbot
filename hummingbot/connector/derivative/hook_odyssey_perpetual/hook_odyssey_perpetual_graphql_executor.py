@@ -250,7 +250,9 @@ class HookOdysseyPerpetualGrapQLExecutor(BaseGraphQLExecutor):
                         }
                         subaccount
                         marketHash
-                        size
+                        sizeHeld
+                        isLong
+                        averageCost
                     }
                 }
             }
