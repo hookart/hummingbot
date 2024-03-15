@@ -1,5 +1,4 @@
 import asyncio
-from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from hummingbot.connector.derivative.hook_odyssey_perpetual.hook_odyssey_perpetual_data_source import (
@@ -67,9 +66,7 @@ class HookOdysseyPerpetualAPIOrderBookDataSource(PerpetualAPIOrderBookDataSource
         message_queue.put_nowait(raw_message)
 
     async def get_funding_info(self, trading_pair: str) -> FundingInfo:
-        index_price = await self._data_source.get_index_price(trading_pair)
         funding_info = await self._data_source.get_funding_info(trading_pair)
-        funding_info.index_price = Decimal(index_price)
         return funding_info
 
     async def _parse_funding_info_message(self, raw_message: Dict[str, Any], message_queue: asyncio.Queue):

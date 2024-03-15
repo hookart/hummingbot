@@ -20,19 +20,19 @@ _nonce_provider = NonceCreator.for_microseconds()
 
 class HookOdysseyPerpetualConfigMap(BaseConnectorConfigMap):
     connector: str = Field(default="hook_odyssey_perpetual", const=True, client_data=None)
-    hook_odyssey_perpetual_eth_address: str = Field(
+    hook_odyssey_perpetual_signer_address: str = Field(
         default=...,
         client_data=ClientFieldData(
-            prompt=lambda cm: "Enter your Ethereum address",
+            prompt=lambda cm: "Enter the order signer address",
             is_secure=False,
             is_connect_key=True,
             prompt_on_new=True,
         ),
     )
-    hook_odyssey_perpetual_private_key: SecretStr = Field(
+    hook_odyssey_perpetual_signer_pkey: SecretStr = Field(
         default=...,
         client_data=ClientFieldData(
-            prompt=lambda cm: "Enter your Ethereum private key",
+            prompt=lambda cm: "Enter the order signer private key",
             is_secure=True,
             is_connect_key=True,
             prompt_on_new=True,
@@ -43,6 +43,33 @@ class HookOdysseyPerpetualConfigMap(BaseConnectorConfigMap):
         client_data=ClientFieldData(
             prompt=lambda cm: "Enter your Hook Odyssey API key",
             is_secure=True,
+            is_connect_key=True,
+            prompt_on_new=True,
+        ),
+    )
+    hook_odyssey_pool_address: str = Field(
+        default='',
+        client_data=ClientFieldData(
+            prompt=lambda cm: "Enter the pool address to trade on behalf of",
+            is_secure=False,
+            is_connect_key=True,
+            prompt_on_new=True,
+        ),
+    )
+    hook_odyssey_pool_subaccount: str = Field(
+        default='',
+        client_data=ClientFieldData(
+            prompt=lambda cm: "Enter the pool subaccount to trade on behalf of",
+            is_secure=False,
+            is_connect_key=True,
+            prompt_on_new=True,
+        ),
+    )
+    hook_odyssey_pool_trading_pair: str = Field(
+        default='',
+        client_data=ClientFieldData(
+            prompt=lambda cm: "Enter the trading pair configured for the pool",
+            is_secure=False,
             is_connect_key=True,
             prompt_on_new=True,
         ),
@@ -62,20 +89,56 @@ OTHER_DOMAINS_DEFAULT_FEES = {"hook_odyssey_perpetual_testnet": DEFAULT_FEES}
 
 class HookOdysseyPerpetualTestnetConfigMap(BaseConnectorConfigMap):
     connector: str = Field(default="hook_odyssey_perpetual_testnet", const=True, client_data=None)
-    hook_odyssey_perpetual_testnet_public_key: SecretStr = Field(
+    hook_odyssey_perpetual_signer_address: str = Field(
         default=...,
         client_data=ClientFieldData(
-            prompt=lambda cm: "Enter your Ethereum wallet public key",
+            prompt=lambda cm: "Enter your Ethereum address",
+            is_secure=False,
+            is_connect_key=True,
+            prompt_on_new=True,
+        ),
+    )
+    hook_odyssey_perpetual_signer_pkey: SecretStr = Field(
+        default=...,
+        client_data=ClientFieldData(
+            prompt=lambda cm: "Enter your Ethereum private key",
             is_secure=True,
             is_connect_key=True,
             prompt_on_new=True,
         ),
     )
-    hook_odyssey_perpetual_testnet_private_key: SecretStr = Field(
+    hook_odyssey_api_key: SecretStr = Field(
         default=...,
         client_data=ClientFieldData(
-            prompt=lambda cm: "Enter your Ethereum wallet private key",
+            prompt=lambda cm: "Enter your Hook Odyssey API key",
             is_secure=True,
+            is_connect_key=True,
+            prompt_on_new=True,
+        ),
+    )
+    hook_odyssey_pool_address: str = Field(
+        default='',
+        client_data=ClientFieldData(
+            prompt=lambda cm: "Enter the pool address to trade on behalf of",
+            is_secure=False,
+            is_connect_key=True,
+            prompt_on_new=True,
+        ),
+    )
+    hook_odyssey_pool_subaccount: str = Field(
+        default='',
+        client_data=ClientFieldData(
+            prompt=lambda cm: "Enter the pool subaccount to trade on behalf of",
+            is_secure=False,
+            is_connect_key=True,
+            prompt_on_new=True,
+        ),
+    )
+    hook_odyssey_pool_trading_pair: str = Field(
+        default=None,
+        client_data=ClientFieldData(
+            prompt=lambda cm: "Enter the trading pair configured for the pool",
+            is_secure=False,
             is_connect_key=True,
             prompt_on_new=True,
         ),
