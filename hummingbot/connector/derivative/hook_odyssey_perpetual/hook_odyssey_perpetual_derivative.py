@@ -1,4 +1,5 @@
 import asyncio
+import time
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from _decimal import Decimal
@@ -21,12 +22,12 @@ from hummingbot.connector.trading_rule import TradingRule
 from hummingbot.connector.utils import combine_to_hb_trading_pair
 from hummingbot.core.api_throttler.data_types import RateLimit
 from hummingbot.core.data_type.common import OrderType, PositionAction, PositionMode, TradeType
-from hummingbot.core.data_type.in_flight_order import InFlightOrder, OrderUpdate, TradeUpdate
+from hummingbot.core.data_type.in_flight_order import InFlightOrder, OrderState, OrderUpdate, TradeUpdate
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
 from hummingbot.core.data_type.trade_fee import AddedToCostTradeFee, TradeFeeBase
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
 from hummingbot.core.event.event_forwarder import EventForwarder
-from hummingbot.core.event.events import AccountEvent, BalanceUpdateEvent, MarketEvent
+from hummingbot.core.event.events import AccountEvent, BalanceUpdateEvent, MarketEvent, PositionUpdateEvent
 from hummingbot.core.network_iterator import NetworkStatus
 from hummingbot.core.utils.async_utils import safe_ensure_future, safe_gather
 from hummingbot.core.web_assistant.auth import AuthBase
@@ -40,23 +41,28 @@ class HookOdysseyPerpetualDerivative(PerpetualDerivativePyBase):
     def __init__(
         self,
         client_config_map: "ClientConfigAdapter",
-        hook_odyssey_perpetual_eth_address: str,
-        hook_odyssey_perpetual_private_key: str,
+        hook_odyssey_perpetual_signer_address: str,
+        hook_odyssey_perpetual_signer_pkey: str,
         hook_odyssey_api_key: str,
+        hook_odyssey_pool_address: str,
+        hook_odyssey_pool_subaccount: str,
+        hook_odyssey_pool_trading_pair: str,
         trading_pairs: Optional[List[str]] = None,
         trading_required: bool = True,
         domain: str = CONSTANTS.DOMAIN,
     ):
-        self.hook_odyssey_perpetual_eth_address = hook_odyssey_perpetual_eth_address
-        self.hook_odyssey_perpetual_private_key = hook_odyssey_perpetual_private_key
         self._trading_required = trading_required
         self._trading_pairs = trading_pairs
         self._domain = domain
         self._data_source = HookOdysseyPerpetualDataSource(
-            hook_odyssey_perpetual_eth_address=hook_odyssey_perpetual_eth_address,
-            hook_odyssey_perpetual_private_key=hook_odyssey_perpetual_private_key,
+            hook_odyssey_perpetual_signer_address=hook_odyssey_perpetual_signer_address,
+            hook_odyssey_perpetual_signer_pkey=hook_odyssey_perpetual_signer_pkey,
             hook_odyssey_api_key=hook_odyssey_api_key,
+            hook_odyssey_pool_address=hook_odyssey_pool_address,
+            hook_odyssey_pool_subaccount=hook_odyssey_pool_subaccount,
+            hook_odyssey_pool_trading_pair=hook_odyssey_pool_trading_pair,
             connector=self,
+            trade_fee_schema=self.trade_fee_schema(),
             domain=self.domain,
             trading_required=self._trading_required,
         )
@@ -262,6 +268,8 @@ class HookOdysseyPerpetualDerivative(PerpetualDerivativePyBase):
 
     async def _place_cancel(self, order_id: str, tracked_order: InFlightOrder):
         hook_order_hash = tracked_order.exchange_order_id
+        if hook_order_hash is None or hook_order_hash == 'None':
+            hook_order_hash = tracked_order.client_order_id
         return await self._data_source.cancel_order(hook_order_hash)
 
     async def _place_order(
@@ -314,9 +322,6 @@ class HookOdysseyPerpetualDerivative(PerpetualDerivativePyBase):
         instrument_hash = perpetual_pair["instrumentHash"]
         subaccount = perpetual_pair["subaccount"]
 
-        if order_type in [OrderType.LIMIT, OrderType.LIMIT_MAKER]:
-            price = self.quantize_order_price(trading_pair, price)
-        amount = self.quantize_order_amount(trading_pair=trading_pair, amount=amount)
         nonce = get_tracking_nonce()
         order_id = self._data_source.order_hash(
             market_hash=market_hash,
@@ -366,9 +371,6 @@ class HookOdysseyPerpetualDerivative(PerpetualDerivativePyBase):
         instrument_hash = perpetual_pair["instrumentHash"]
         subaccount = perpetual_pair["subaccount"]
 
-        if order_type in [OrderType.LIMIT, OrderType.LIMIT_MAKER]:
-            price = self.quantize_order_price(trading_pair, price)
-        amount = self.quantize_order_amount(trading_pair=trading_pair, amount=amount)
         nonce = get_tracking_nonce()
         order_id = self._data_source.order_hash(
             market_hash=market_hash,
@@ -414,12 +416,13 @@ class HookOdysseyPerpetualDerivative(PerpetualDerivativePyBase):
             return
 
         balances = await self._data_source.get_balances()
+        equity = await self._data_source.get_account_equity()
         for trading_pair in self._trading_pairs:
             # Use the subaccount balance for the first found trading pair
             perpetual_pair = self._data_source.get_perpetual_pair_for_trading_pair(trading_pair)
             if perpetual_pair is not None:
                 subaccount = perpetual_pair["subaccount"]
-                self._account_balances[perpetual_pair["baseCurrency"]] = balances[subaccount]
+                self._account_balances[perpetual_pair["baseCurrency"]] = equity[subaccount]
                 self._account_available_balances[perpetual_pair["baseCurrency"]] = balances[subaccount]
                 break
 
@@ -482,14 +485,57 @@ class HookOdysseyPerpetualDerivative(PerpetualDerivativePyBase):
         self._forwarders.append(event_forwarder)
         self._data_source.add_listener(event_tag=AccountEvent.BalanceEvent, listener=event_forwarder)
 
+        event_forwarder = EventForwarder(to_function=self._process_position_event)
+        self._forwarders.append(event_forwarder)
+        self._data_source.add_listener(event_tag=AccountEvent.PositionUpdate, listener=event_forwarder)
+
     def _process_balance_event(self, event: BalanceUpdateEvent):
         self._account_balances[event.asset_name] = event.total_balance
         self._account_available_balances[event.asset_name] = event.available_balance
 
+    def _process_position_event(self, position_update_event: PositionUpdateEvent):
+        self._last_received_message_timestamp = time.time()
+        position_key = self._perpetual_trading.position_key(
+            position_update_event.trading_pair, position_update_event.position_side
+        )
+        if position_update_event.amount != Decimal("0"):
+            position = self._perpetual_trading.get_position(
+                trading_pair=position_update_event.trading_pair, side=position_update_event.position_side
+            )
+            if position is not None:
+                position.update_position(
+                    position_side=position_update_event.position_side,
+                    unrealized_pnl=position_update_event.unrealized_pnl,
+                    entry_price=position_update_event.entry_price,
+                    amount=position_update_event.amount,
+                    leverage=position_update_event.leverage,
+                )
+            else:
+                safe_ensure_future(coro=self._update_positions())
+        else:
+            self._perpetual_trading.remove_position(post_key=position_key)
+
     def _process_user_order_update(self, order_update: OrderUpdate):
         tracked_order = self._order_tracker.all_updatable_orders.get(order_update.client_order_id)
 
-        if tracked_order is not None:
+        if tracked_order is None:
+            # Add the order update to the order tracker if active
+            if order_update.new_state in [OrderState.FILLED, OrderState.CANCELED, OrderState.FAILED]:
+                return
+            order_type = order_update.misc_updates.get("order_type")
+            trade_type = order_update.misc_updates.get("trade_type")
+            price = order_update.misc_updates.get("price")
+            amount = order_update.misc_updates.get("amount")
+            self.start_tracking_order(
+                order_id=order_update.client_order_id,
+                exchange_order_id=order_update.exchange_order_id,
+                trading_pair=order_update.trading_pair,
+                order_type=order_type,
+                trade_type=trade_type,
+                price=price,
+                amount=amount,
+            )
+        else:
             self.logger().debug(f"Processing order update {order_update}\nUpdatable order {tracked_order.to_json()}")
             order_update_to_process = OrderUpdate(
                 trading_pair=tracked_order.trading_pair,
@@ -505,22 +551,4 @@ class HookOdysseyPerpetualDerivative(PerpetualDerivativePyBase):
 
         if tracked_order is not None:
             self.logger().debug(f"Processing trade update {trade_update}\nFillable order {tracked_order.to_json()}")
-
-            # Fetch the current fee rates
-            maker_fee, taker_fee = self._data_source.get_fees()
-            fee_rate = maker_fee if tracked_order.is_maker else taker_fee
-            fee = TradeFeeBase.new_perpetual_fee(trade_type=tracked_order.trade_type, percent=fee_rate)
-
-            fill_amount = trade_update.fill_base_amount - tracked_order.executed_amount_base
-            trade_update: TradeUpdate = TradeUpdate(
-                trade_id=trade_update.trade_id,
-                client_order_id=tracked_order.client_order_id,
-                exchange_order_id=trade_update.exchange_order_id,
-                trading_pair=tracked_order.trading_pair,
-                fill_timestamp=trade_update.fill_timestamp,
-                fill_price=trade_update.fill_price,
-                fill_base_amount=fill_amount,
-                fill_quote_amount=fill_amount * trade_update.fill_price,
-                fee=fee,
-            )
             self._order_tracker.process_trade_update(trade_update)
