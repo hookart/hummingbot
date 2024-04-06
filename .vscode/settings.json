@@ -1,0 +1,8 @@
+{
+    "[python]": {
+      "editor.formatOnSave": false,
+      "editor.defaultFormatter": "charliermarsh.ruff"
+    },
+    "mypy-type-checker.ignorePatterns": ["*"]
+  }
+  
