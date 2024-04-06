@@ -1,1 +1,2 @@
 *.yml
+!conf_testnet_degen_usdc_pmm.yml

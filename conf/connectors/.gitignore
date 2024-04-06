@@ -1,1 +1,2 @@
 *.yml
+!hook_odyssey_perpetual_testnet.yml
