@@ -24,6 +24,11 @@ COPY LICENSE .
 COPY README.md .
 COPY DATA_COLLECTION.md .
 
+# ARG CONNECTOR_FILE_NAME
+# ARG CONNECTOR_DEST_FILE_NAME
+# COPY setup_connector.sh /home/hummingbot/
+# RUN chmod +x /home/hummingbot/setup_connector.sh && /home/hummingbot/setup_connector.sh
+
 # activate hummingbot env when entering the CT
 SHELL [ "/bin/bash", "-lc" ]
 RUN echo "conda activate hummingbot" >> ~/.bashrc

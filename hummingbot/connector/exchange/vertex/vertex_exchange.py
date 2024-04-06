@@ -41,7 +41,7 @@ class VertexExchange(ExchangePyBase):
         vertex_arbitrum_private_key: str,
         trading_pairs: Optional[List[str]] = None,
         trading_required: bool = True,
-        domain: str = CONSTANTS.DEFAULT_DOMAIN,
+        domain: str = CONSTANTS.DOMAIN,
     ):
         self.sender_address = utils.convert_address_to_sender(vertex_arbitrum_address)
         self.private_key = vertex_arbitrum_private_key
