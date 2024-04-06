@@ -106,6 +106,9 @@ class HookOdysseyPerpetualDataSource:
         self._initial_subaccount_balances_event = asyncio.Event()
         self._initial_subaccount_positions_event = asyncio.Event()
 
+        # Track the timestamp of the last snapshot
+        self._last_orderbook_msg = time.time()
+
     def pools_configured(self) -> bool:
         return all(
             [
@@ -155,13 +158,22 @@ class HookOdysseyPerpetualDataSource:
     def remove_listener(self, event_tag, listener: EventListener):
         self._publisher.remove_listener(event_tag=event_tag, listener=listener)
 
+    async def orderbook_event_watcher(self):
+        while True:
+            if time.time() - self._last_orderbook_msg > 60:
+                self.logger().warning("Snapshot timeout detected, raising exception")
+                raise asyncio.TimeoutError("Snapshot timeout detected")
+            await asyncio.sleep(1)
+
     async def subscription_connection(self, trading_pairs: List[str]):
         address = self._hook_odyssey_perpetual_signer_address
         if self.pools_configured():
             address = self._hook_odyssey_perpetual_pool_address
 
         while True:
+            self._events_listening_tasks.clear()
             try:
+                self._events_listening_tasks.append(asyncio.create_task(self.orderbook_event_watcher()))
                 client = self._graphql_executor.ws_client()
                 async with client as session:
                     for trading_pair in trading_pairs:
@@ -243,7 +255,13 @@ class HookOdysseyPerpetualDataSource:
                                 )
                             )
                         )
-                    await asyncio.gather(*self._events_listening_tasks)
+                    while True:
+                        # Check if any task has unexpectedly completed
+                        if any(task.done() for task in self._events_listening_tasks):
+                            raise Exception("A task unexpectedly completed")
+
+                        # A short delay before checking if the tasks are still running
+                        await asyncio.sleep(0.5)
             except (ConnectionClosed, asyncio.TimeoutError, Exception) as e:
                 self.logger().error(f"Subscription connection error: {str(e)}, attempting to reconnect...")
                 for task in self._events_listening_tasks:
@@ -427,6 +445,7 @@ class HookOdysseyPerpetualDataSource:
 
     async def _process_bbo_update(self, event: Dict[str, Any], symbol: str):
         bbo_event = event["bbo"]
+        self._last_orderbook_msg = time.time()
 
         if symbol not in self._symbols:
             return
@@ -446,6 +465,7 @@ class HookOdysseyPerpetualDataSource:
         trading_pair = self._instrument_hashes[instrument_hash]
 
         orderbook_event = event["orderbook"]
+
         message_type = OrderBookMessageType.DIFF
         if orderbook_event["eventType"] == "SNAPSHOT":
             message_type = OrderBookMessageType.SNAPSHOT
@@ -485,12 +505,15 @@ class HookOdysseyPerpetualDataSource:
 
     async def _process_subaccount_orders_update(self, event: Dict[str, Any], subaccount: str):
         orders_event = event["subaccountOrders"]
-        if orders_event["eventType"] == "SNAPSHOT" and not self._initial_subaccount_orders_event.is_set():
-            self._initial_subaccount_orders_event.set()
+        self._last_orderbook_msg = time.time()
+
         orders = orders_event["orders"]
         if subaccount not in self._subaccounts:
             return
         trading_pair = self._subaccounts[subaccount]
+        if orders_event["eventType"] == "SNAPSHOT":
+            self._initial_subaccount_orders_event.set()
+            self.logger().info(f"SubaccountOrders snapshot: {trading_pair}")
 
         for order in orders:
             if order["status"] in ["PARTIALLY_MATCHED", "MATCHED"]:
